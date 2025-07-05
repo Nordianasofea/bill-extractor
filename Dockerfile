@@ -21,5 +21,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy your entire project into the container
 COPY . .
 
+RUN mkdir uploads
+
 # Define the command to run your app using Gunicorn
 CMD ["gunicorn", "--bind", "0.0.0.0:10000", "app:app"]
