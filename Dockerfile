@@ -23,5 +23,4 @@ COPY . .
 
 RUN mkdir uploads
 
-# Define the command to run your app using Gunicorn
-CMD ["gunicorn", "--bind", "0.0.0.0:10000", "app:app"]
+CMD ["python", "app.py"]
