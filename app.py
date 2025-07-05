@@ -160,7 +160,7 @@ def process_pdf(filepath):
 
                 # 3. NEW STEP - Noise Removal: Use Median Blur to remove digital speckles.
                 #    This smooths the image before the final step.
-                blurred_image = cv2.medianBlur(gray_image, 5)
+                blurred_image = cv2.medianBlur(gray_image, 3)
                 
                 # 4. Apply Thresholding on the noise-reduced image to get a pure black-and-white image.
                 _, thresh_image = cv2.threshold(blurred_image, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
