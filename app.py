@@ -60,11 +60,12 @@ def clean_numeric(value):
     except (ValueError, TypeError):
         return 0.0
 
-# REPLACE YOUR FUNCTION WITH THIS FINAL VERSION
 def extract_data_from_text(text):
     """
-    FINAL DEFINITIVE VERSION: Uses an even more robust regex for MD (kW)
-    that handles the specific OCR error on page 1 ("ehendak Maksima").
+    CORRECTED VERSION: Fixes issues with MD (RM) extraction and Amount (RM) calculation
+    - Makes the "MD (RM)" regex more robust by handle OCR errors (e.g., "ehendak").
+    - Corrects the "Amount (RM)" calculation logic to ensure it's always the sum of Total and MD.
+    - MODIFIED: Implements a MORE PRECISE fallback regex for "Kehendak maksima RM".
     """
     logger.info("Starting data extraction from OCR text...")
     
@@ -82,17 +83,12 @@ def extract_data_from_text(text):
                     return group.strip().replace('\n', ' ')
         return None
 
-    # The definitive, most robust patterns
+    # Definitive patterns, with "Kehendak maksima RM" removed to be handled separately.
     patterns = {
         "Tarikh bill": r"Tarikh Bil\s*:?\s*([\d\.]+)",
         "kegunaan kWh": r"Kegunaan\s+([\d,]+\.\d*)\s+[\d\.]+\s+[\d,]+\.\d*",
         "kegunaan RM": r"Kegunaan\s+[\d,]+\.\d*\s+[\d\.]+\s+([\d,]+\.\d*)",
-
-        # --- THE FINAL, BULLETPROOF PATTERN ---
-        # The K? makes the 'K' optional, matching both "Kehendak" and "ehendak".
         "Kehendak maksima kWh": r"K?ehendak Maksima\s+([\d,]+\.?\d*)",
-        
-        "Kehendak maksima RM": r"Kehendak Maksima RM\s+RM\s+([\d,]+\.\d*)",
         "KWTBB": r'KWTBB.*?RM\s*(\d{1,3}(?:,\d{3})*\.\d{2})',
         "Diskaun": r"Diskaun TNB\s+RM\s+(-?[\d,]+\.\d*-?)",
         "ICPT": r"ICPT\s*\(.*?\)[\s\S]*?RM\s*(-?[\d,]+\.\d*-?)",
@@ -104,13 +100,23 @@ def extract_data_from_text(text):
     for key, pattern in patterns.items():
         malay_data[key] = find_value(pattern, text)
         
-    # Calculate Amount (RM) as a reliable fallback
+    # --- Custom Logic for "Kehendak maksima RM" with Fallback ---
+    # 1. Try the primary, more specific pattern first.
+    md_rm_value = find_value(r"K?ehendak Maksima RM\s+RM\s+([\d,]+\.\d{2})", text)
+    
+    # 2. If it fails, use the NEW, more precise fallback pattern for the "Blok Tarif" section.
+    if not md_rm_value:
+        # This pattern now skips the first two numbers to capture the third (the amount).
+        fallback_pattern = r"K?ehendak Maksima\s+[\d,]+\.?\d*\s+[\d\.]+\s+([\d,]+\.\d{2})"
+        md_rm_value = find_value(fallback_pattern, text)
+        
+    malay_data["Kehendak maksima RM"] = md_rm_value
+    # --- End of Custom Logic ---
+    
+    # This calculation will now be correct because md_rm_value is being extracted properly.
     total_rm_val = clean_numeric(malay_data.get("kegunaan RM"))
     md_rm_val = clean_numeric(malay_data.get("Kehendak maksima RM"))
-    if total_rm_val > 0 and md_rm_val > 0:
-        malay_data["Amount (RM)"] = total_rm_val + md_rm_val
-    else:
-        malay_data["Amount (RM)"] = 0.0
+    malay_data["Amount (RM)"] = total_rm_val + md_rm_val
 
     # Key mapping from Malay to English
     key_mapping = {
@@ -136,12 +142,11 @@ def extract_data_from_text(text):
     logger.info(f"Extracted data (after mapping): {english_data}")
     return english_data
 
-# REPLACE YOUR OLD FUNCTION WITH THIS ONE
-# REPLACE YOUR OLD FUNCTION WITH THIS MORE POWERFUL VERSION
+
 def process_pdf(filepath):
     """
-    UPGRADED: Adds an advanced pre-processing chain (Grayscale,
-    Noise Removal, Thresholding) for maximum stability.
+    MODIFIED: Removes the thresholding step from the pre-processing chain.
+    The OCR will now process a blurred grayscale image instead of a pure black-and-white one.
     """
     try:
         images = convert_from_path(filepath, dpi=300) 
@@ -150,7 +155,7 @@ def process_pdf(filepath):
 
         for page_num, image in enumerate(images, start=1):
             try:
-                # --- START: ADVANCED PRE-PROCESSING CHAIN ---
+                # --- START: MODIFIED PRE-PROCESSING CHAIN ---
 
                 # 1. Convert the image from its original format to an OpenCV format
                 open_cv_image = np.array(image)
@@ -158,17 +163,11 @@ def process_pdf(filepath):
                 # 2. Convert to Grayscale
                 gray_image = cv2.cvtColor(open_cv_image, cv2.COLOR_BGR2GRAY)
 
-                # 3. NEW STEP - Noise Removal: Use Median Blur to remove digital speckles.
-                #    This smooths the image before the final step.
+                # 3. Noise Removal: Use Median Blur to remove digital speckles.
                 blurred_image = cv2.medianBlur(gray_image, 3)
                 
-                # 4. Apply Thresholding on the noise-reduced image to get a pure black-and-white image.
-                _, thresh_image = cv2.threshold(blurred_image, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-                
-                # --- END: ADVANCED PRE-PROCESSING CHAIN ---
-
-                # Send the fully processed image to Tesseract
-                text = pytesseract.image_to_string(thresh_image, config=custom_config)
+           
+                text = pytesseract.image_to_string(blurred_image, config=custom_config)
                 
                 page_data = extract_data_from_text(text)
                 
@@ -182,7 +181,7 @@ def process_pdf(filepath):
                              page_data[key] = clean_numeric(value)
 
                     all_data.append(page_data)
-                    logger.info(f"✅ Valid data found on page {page_num} after advanced processing.")
+                    logger.info(f"✅ Data found on page {page_num} using modified processing.")
                 else:
                     logger.warning(f"⚠️ Page {page_num} does not contain extractable bill data.")
 
@@ -196,10 +195,7 @@ def process_pdf(filepath):
         logger.error(f"PDF processing failed: {str(e)}")
         print(traceback.format_exc())
         raise
-    except Exception as e:
-        logger.error(f"PDF processing failed: {str(e)}")
-        print(traceback.format_exc())
-        raise
+
 
 @app.route('/', methods=['GET', 'POST'])
 def index():
